@@ -110,14 +110,14 @@ def main():
             mask = mask_gen(ref_img)
             mask = mask[0, 0, :, :].unsqueeze(dim=0).unsqueeze(dim=0)
             measurement_cond_fn = partial(cond_method.conditioning, mask=mask)
-            sample_fn = partial(sample_fn, measurement_cond_fn=measurement_cond_fn, operator = operator, mask = mask)
+            sample_fn = partial(sample_fn, measurement_cond_fn=measurement_cond_fn, operator = operator, op = 'inpainting', mask = mask)
 
             y = operator.forward(ref_img, mask=mask)
             y_n = noiser(y)
         
         elif measure_config['operator'] ['name'] == 'gaussian_blur':
 
-            sample_fn = partial(sample_fn, operator = operator, mask = None)
+            sample_fn = partial(sample_fn, operator = operator, op = 'gaussian_blur', mask = None)
             
             kernel = operator.get_kernel().type(torch.float64).reshape(61,61)
             kernel = kernel[30,:] / torch.sqrt(kernel[30,30])
@@ -128,7 +128,7 @@ def main():
             
         elif measure_config['operator'] ['name'] == 'motion_blur':
 
-            sample_fn = partial(sample_fn, operator = operator, mask = None)
+            sample_fn = partial(sample_fn, operator = operator, op = 'motion_blur', mask = None)
             
             kernel = operator.get_kernel().type(torch.float64).reshape(61,61)
             kernel1 = kernel[30,:] / torch.sum(kernel[30,:])
@@ -147,11 +147,12 @@ def main():
             y_n = noiser(y)
         
         else: 
-            sample_fn = partial(sample_fn, operator = operator, mask = None)
+            sample_fn = partial(sample_fn, operator = operator, op = 'super_resolution', mask = None)
             y = operator.forward(ref_img)
             y_n = noiser(y)
          
         # Sampling
+        # If you wish to record the intermediate steps, turn record = True below.
         x_start = torch.randn(ref_img.shape, device=device).requires_grad_()
         sample = sample_fn(x_start=x_start, measurement=y_n, record=False, save_root=out_path).requires_grad_()
         

@@ -1,13 +1,16 @@
 import math
 import os
+import random
 from functools import partial
+from math import exp
 import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from tqdm.auto import tqdm
 
-from util.img_utils import clear_color
+from util.img_utils import clear_color, Blurkernel
 from .posterior_mean_variance import get_mean_processor, get_var_processor
+from .svd_replacement import SuperResolution, Deblurring, Deblurring2D
 
 
 
@@ -36,7 +39,10 @@ def create_sampler(sampler,
                    dynamic_threshold,
                    clip_denoised,
                    rescale_timesteps,
-                   timestep_respacing=""):
+                   c_rate,
+                   particle_size,
+                   timestep_respacing=""
+                   ):
     
     sampler = get_sampler(name=sampler)
     
@@ -50,7 +56,9 @@ def create_sampler(sampler,
                    model_var_type=model_var_type,
                    dynamic_threshold=dynamic_threshold,
                    clip_denoised=clip_denoised, 
-                   rescale_timesteps=rescale_timesteps)
+                   rescale_timesteps=rescale_timesteps,
+                   c_rate=c_rate,
+                   particle_size=particle_size)
 
 
 class GaussianDiffusion:
@@ -60,10 +68,16 @@ class GaussianDiffusion:
                  model_var_type,
                  dynamic_threshold,
                  clip_denoised,
-                 rescale_timesteps
+                 rescale_timesteps,
+                 c_rate,
+                 particle_size
                  ):
 
         # use float64 for accuracy.
+        self.sigma = 0.05
+        self.c_rate = c_rate
+        self.M = particle_size    # Subsampling size
+        
         betas = np.array(betas, dtype=np.float64)
         self.betas = betas
         assert self.betas.ndim == 1, "betas must be 1-D"
@@ -73,9 +87,11 @@ class GaussianDiffusion:
         self.rescale_timesteps = rescale_timesteps
 
         alphas = 1.0 - self.betas
+        self.alphas = alphas
         self.alphas_cumprod = np.cumprod(alphas, axis=0)
         self.alphas_cumprod_prev = np.append(1.0, self.alphas_cumprod[:-1])
         self.alphas_cumprod_next = np.append(self.alphas_cumprod[1:], 0.0)
+        self.variance_diff = self.alphas_cumprod * self.sigma * self.sigma
         assert self.alphas_cumprod_prev.shape == (self.num_timesteps,)
 
         # calculations for diffusion q(x_t | x_{t-1}) and others
@@ -86,9 +102,9 @@ class GaussianDiffusion:
         self.sqrt_recipm1_alphas_cumprod = np.sqrt(1.0 / self.alphas_cumprod - 1)
 
         # calculations for posterior q(x_{t-1} | x_t, x_0)
-        self.posterior_variance = (
-            betas * (1.0 - self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod)
-        )
+
+        self.posterior_variance = (1.0 - self.alphas_cumprod_prev) * self.c_rate
+        
         # log calculation clipped because the posterior variance is 0 at the
         # beginning of the diffusion chain.
         self.posterior_log_variance_clipped = np.log(
@@ -102,14 +118,17 @@ class GaussianDiffusion:
             * np.sqrt(alphas)
             / (1.0 - self.alphas_cumprod)
         )
+        
+        self.ex_values = self.variance_diff / (self.posterior_variance + 1.0e-6)
 
         self.mean_processor = get_mean_processor(model_mean_type,
                                                  betas=betas,
+                                                 c_rate=c_rate,
                                                  dynamic_threshold=dynamic_threshold,
                                                  clip_denoised=clip_denoised)    
     
-        self.var_processor = get_var_processor(model_var_type,
-                                               betas=betas)
+        # self.var_processor = get_var_processor(model_var_type,
+        #                                       betas=betas)
 
     def q_mean_variance(self, x_start, t):
         """
@@ -172,61 +191,136 @@ class GaussianDiffusion:
                       x_start,
                       measurement,
                       measurement_cond_fn,
+                      operator,
+                      op,
+                      mask,
                       record,
                       save_root):
         """
         The function used for sampling from noise.
         """ 
         img = x_start
-        device = x_start.device
+        device = measurement.device
+        batch_size = 1
+        
+        if op == 'super_resolution':
+            self.task_Svd = SuperResolution(channels=3, img_dim=256, ratio=4, device=device)
+        
+        elif op == 'gaussian_blur':
+            kernel = operator.get_kernel().type(torch.float64).reshape(61,61)
+            kernel = kernel[30,:] / torch.sqrt(kernel[30,30])
+            self.task_Svd = Deblurring(kernel=kernel, channels=3, img_dim=256, device=device)
+        
+        elif op == 'motion_blur':
+            kernel = operator.get_kernel().type(torch.float64).reshape(61,61)
+            kernel1 = kernel[30,:] / torch.sum(kernel[30,:])
+            kernel1 = torch.tensor([0.0] * 30 + [1.0] + [0.0] * 30)
+            conv2 = Blurkernel(blur_type='gaussian',
+                              kernel_size=61,
+                              std=0.5,
+                              device=device).to(device)
+            kernel2 = conv2.get_kernel().view(1,1,61,61).type(torch.float64).reshape(61,61)
+            kernel2 = kernel2[30,:] / torch.sum(kernel2[30,:])
+            self.task_Svd = Deblurring2D(kernel1=kernel1, kernel2=kernel2, channels=3, img_dim=256, device=device)
+        
+        
+        # Backward DDIM Generation of y-sequence
+        
+        if op == 'inpainting':
+            y_last = operator.forward(torch.randn_like(img), mask=mask)
+        elif op == 'super_resolution':
+            y_last = operator.forward(torch.randn_like(img))
+        else:
+            y_last = self.task_Svd.forward(torch.randn_like(img))
 
+        ys = [y_last]
+        coef_1 = np.sqrt((1-self.c_rate) * (1.0 - self.alphas_cumprod_prev) / (1.0 - self.alphas_cumprod))
+        coef_2 = np.sqrt(self.alphas_cumprod_prev)
+        coef_3 = np.sqrt(self.alphas_cumprod)
+        coef_4 = np.sqrt(self.c_rate) * np.sqrt(1.0 - self.alphas_cumprod_prev)
+        for _ in range(self.num_timesteps - 1, 0, -1):
+            noise = torch.randn_like(img)
+            c1 = extract_and_expand(coef_1, _, measurement)
+            c2 = extract_and_expand(coef_2, _, measurement)
+            c3 = extract_and_expand(coef_3, _, measurement)
+            c4 = extract_and_expand(coef_4, _, measurement)
+            
+            if op == 'inpainting':
+                noise_ = operator.forward(noise, mask=mask)
+            elif op == 'super_resolution':
+                noise_ = operator.forward(noise)
+            else:
+                noise_ = self.task_Svd.forward(noise)
+            new_y = c2 * measurement + c1 * (ys[-1] - c3 * measurement) + c4 * noise_
+            ys.append(new_y)
+            
+        ys = ys[::-1]
+
+        starting = True
         pbar = tqdm(list(range(self.num_timesteps))[::-1])
         for idx in pbar:
-            time = torch.tensor([idx] * img.shape[0], device=device)
+            time = torch.tensor([idx], device=device)
+            y = ys[idx]
+            y = torch.tile(y, (self.M, 1, 1, 1))
+            
+            if starting:
+                if op == 'inpainting':
+                    noise = torch.randn_like(y)
+                    img = operator.forward(y, mask=mask)
+                    img = img + noise - operator.forward(noise, mask=mask)
+                    starting = False
+                    continue
+                else:
+                    noise = torch.randn_like(img)
+                    tmp = self.task_Svd.transpose(y)
+                    img = self.task_Svd.get_mean(tmp, self.variance_diff[idx])
+                    img = img + self.task_Svd.get_noise(noise, self.variance_diff[idx])
+                    starting = False
+                    img = img.reshape(batch_size, 3, 256, 256)
+                    continue
             
             img = img.requires_grad_()
-            out = self.p_sample(x=img, t=time, model=model)
-            
-            # Give condition.
-            noisy_measurement = self.q_sample(measurement, t=time)
-
-            # TODO: how can we handle argument for different condition method?
-            img, distance = measurement_cond_fn(x_t=out['sample'],
-                                      measurement=measurement,
-                                      noisy_measurement=noisy_measurement,
-                                      x_prev=img,
-                                      x_0_hat=out['pred_xstart'])
-            img = img.detach_()
-           
-            pbar.set_postfix({'distance': distance.item()}, refresh=False)
+            out = self.p_sample(x=img, t=time, model=model, operator = operator, op = op, mask = mask, Y = y)
+            img = out['sample']
+            img = img.detach().reshape(self.M, 3, 256, 256)
             if record:
                 if idx % 10 == 0:
                     file_path = os.path.join(save_root, f"progress/x_{str(idx).zfill(4)}.png")
                     plt.imsave(file_path, clear_color(img))
+                    file_path = os.path.join(save_root, f"progress/y_{str(idx).zfill(4)}.png")
+                    plt.imsave(file_path, clear_color(y))
 
-        return img       
+        return torch.unsqueeze(img[0], 0)      
         
     def p_sample(self, model, x, t):
         raise NotImplementedError
-
-    def p_mean_variance(self, model, x, t):
-        model_output = model(x, self._scale_timesteps(t))
         
+    def p_mean_variance(self, model, x, t, operator, op, mask, Y):
+        
+        model_output = model(x, self._scale_timesteps(t))
+
         # In the case of "learned" variance, model will give twice channels.
         if model_output.shape[1] == 2 * x.shape[1]:
-            model_output, model_var_values = torch.split(model_output, x.shape[1], dim=1)
-        else:
-            # The name of variable is wrong. 
-            # This will just provide shape information, and 
-            # will not be used for calculating something important in variance.
-            model_var_values = model_output
+            model_output, _ = torch.split(model_output, x.shape[1], dim=1)
 
-        model_mean, pred_xstart = self.mean_processor.get_mean_and_xstart(x, t, model_output)
-        model_variance, model_log_variance = self.var_processor.get_variance(model_var_values, t)
+        model_mean_back, pred_xstart = self.mean_processor.get_mean_and_xstart(x, t, model_output)
+        model_mean = model_mean_back
+        
+        if t.data[0] != 0:
+            coef = extract_and_expand(1/self.ex_values, t, x)
+            if op == 'inpainting':
+                model_mean = model_mean_back + coef * operator.forward(Y, mask=mask)
+                model_mean = model_mean - (coef / (coef+1.0)) * operator.forward(model_mean, mask=mask)
+            else:
+                model_mean = model_mean + coef * self.task_Svd.transpose(Y)
+                model_mean = self.task_Svd.get_mean(model_mean, self.ex_values[t.data[0]])
+            
+        model_variance = self.sigma * self.sigma * extract_and_expand(self.alphas_cumprod_prev, t, Y)
+        model_log_variance = torch.log(model_variance)
 
-        assert model_mean.shape == model_log_variance.shape == pred_xstart.shape == x.shape
 
-        return {'mean': model_mean,
+        return {'mean_back': model_mean_back,
+                'mean': model_mean,
                 'variance': model_variance,
                 'log_variance': model_log_variance,
                 'pred_xstart': pred_xstart}
@@ -360,51 +454,76 @@ class _WrappedModel:
         return self.model(x, new_ts, **kwargs)
 
 
-@register_sampler(name='ddpm')
-class DDPM(SpacedDiffusion):
-    def p_sample(self, model, x, t):
-        out = self.p_mean_variance(model, x, t)
-        sample = out['mean']
-
-        noise = torch.randn_like(x)
-        if t != 0:  # no noise when t == 0
-            sample += torch.exp(0.5 * out['log_variance']) * noise
-
-        return {'sample': sample, 'pred_xstart': out['pred_xstart']}
-    
-
 @register_sampler(name='ddim')
 class DDIM(SpacedDiffusion):
-    def p_sample(self, model, x, t, eta=0.0):
-        out = self.p_mean_variance(model, x, t)
+    def p_sample(self, model, x, t, operator, op, mask, Y):  # ZD: Add operator and mask.
+        out = self.p_mean_variance(model, x, t, operator, op, mask, Y)  # ZD: Add operator and mask.
+        sample = out['mean']
+        sample_back = out['mean_back']
         
-        eps = self.predict_eps_from_x_start(x, t, out['pred_xstart'])
-        
-        alpha_bar = extract_and_expand(self.alphas_cumprod, t, x)
-        alpha_bar_prev = extract_and_expand(self.alphas_cumprod_prev, t, x)
-        sigma = (
-            eta
-            * torch.sqrt((1 - alpha_bar_prev) / (1 - alpha_bar))
-            * torch.sqrt(1 - alpha_bar / alpha_bar_prev)
-        )
-        # Equation 12.
-        noise = torch.randn_like(x)
-        mean_pred = (
-            out["pred_xstart"] * torch.sqrt(alpha_bar_prev)
-            + torch.sqrt(1 - alpha_bar_prev - sigma ** 2) * eps
-        )
+        if t.data[0] != 0:  # no noise when t == 0
+            M = self.M
+            samples = []
+            model_variance = self.sigma * self.sigma * self.alphas_cumprod_prev[t.data[0]]
+            sample_list = [torch.unsqueeze(sample[i], 0) for i in range(M)]
+            sample_back_list = [torch.unsqueeze(sample_back[i], 0) for i in range(M)]
+            e_x = sample_list[0]
+            e_y = torch.unsqueeze(Y[0], 0)
+            a_coef = self.variance_diff
+            c1_coef = np.sqrt(self.posterior_variance)
+            a = extract_and_expand(a_coef, t, e_x)
+            c1 = extract_and_expand(c1_coef, t, e_x)
+            
+            # ZD: Inpainting -------------------
+            
+            if op == 'inpainting':
+                self.union_variance = a_coef * self.posterior_variance / (a_coef + self.posterior_variance)
+                c2_coef = np.sqrt(self.union_variance)
+                c2 = extract_and_expand(c2_coef, t, Y)
+                for _ in range(M):
+                    noise = torch.randn_like(e_x)
+                    noise = c1 * noise - (c1 - c2) * operator.forward(noise, mask=mask)
+                    samples.append(sample_list[_] + noise)
+                prob_y = [-torch.linalg.norm(e_y - operator.forward(samples[i], mask=mask)).item() ** 2 / (2*model_variance) for i in range(M)]
+                prob_x = [-torch.linalg.norm(samples[i] - sample_back_list[i]).item() ** 2 / (2 * self.posterior_variance[t.data[0]]) for i in range(M)]
+                prob_prev = [-torch.linalg.norm(samples[i] - sample_list[i]).item() ** 2 / (2 * self.posterior_variance[t.data[0]]) + torch.linalg.norm(operator.forward(samples[i] - sample_list[i], mask=mask)).item() ** 2 * (1/(2*self.posterior_variance[t.data[0]])-1/(2*self.union_variance[t.data[0]])) for i in range(M)]
+                prob = [prob_y[_] + prob_x[_] - prob_prev[_] for _ in range(M)]
+                exp_prob = [exp(x-max(prob)) for x in prob]
+                sample_id = random.choices(list(range(M)), weights=exp_prob, k=M)
+                sample = [samples[i] for i in sample_id]
+                sample = torch.stack(samples, 0)[:,0,:,:,:]
+                
+            elif op == 'super_resolution':
+                for _ in range(M):
+                    noise = torch.randn_like(e_x)
+                    noise = c1 * noise
+                    noise = self.task_Svd.get_noise(noise, self.ex_values[t.data[0]])
+                    samples.append(sample_list[_] + noise)
+                prob_y = [-torch.linalg.norm(e_y - operator.forward(samples[i])).item() ** 2 / (2*model_variance) for i in range(M)]
+                prob_x = [-torch.linalg.norm(samples[i] - sample_back_list[i]).item() ** 2 / (2 * c1 * c1) for i in range(M)]
+                prob_prev = [-torch.linalg.norm(samples[i] - sample_list[i]).item() ** 2 / (2 * c1 * c1) - torch.linalg.norm(operator.forward(samples[i]-sample_list[i])).item() ** 2 / (2 * a) for i in range(M)]
+                prob = [prob_y[_] + prob_x[_] - prob_prev[_] for _ in range(M)]
+                exp_prob = [exp(x-max(prob)) for x in prob]
+                sample_id = random.choices(list(range(M)), weights=exp_prob, k=M)
+                sample = [samples[i] for i in sample_id]
+                sample = torch.stack(samples, 0)[:,0,:,:,:]
+            
+            else:
+                for _ in range(M):
+                    noise = torch.randn_like(e_x)
+                    noise = c1 * noise
+                    noise = self.task_Svd.get_noise(noise, self.ex_values[t.data[0]])
+                    samples.append(sample_list[_] + noise)
+                prob_y = [-torch.linalg.norm(e_y - self.task_Svd.forward(samples[i])).item() ** 2 / (2*model_variance) for i in range(M)]
+                prob_x = [-torch.linalg.norm(samples[i] - sample_back_list[i]).item() ** 2 / (2 * c1 * c1) for i in range(M)]
+                prob_prev = [-torch.linalg.norm(samples[i] - sample_list[i]).item() ** 2 / (2 * c1 * c1) - torch.linalg.norm(operator.forward(samples[i]-sample_list[i])).item() ** 2 / (2 * a) for i in range(M)]
+                prob = [prob_y[_] + prob_x[_] - prob_prev[_] for _ in range(M)]
+                exp_prob = [exp(x-max(prob)) for x in prob]
+                sample_id = random.choices(list(range(M)), weights=exp_prob, k=M)
+                sample = [samples[i] for i in sample_id]
+                sample = torch.stack(samples, 0)[:,0,:,:,:]
 
-        sample = mean_pred
-        if t != 0:
-            sample += sigma * noise
-        
-        return {"sample": sample, "pred_xstart": out["pred_xstart"]}
-
-    def predict_eps_from_x_start(self, x_t, t, pred_xstart):
-        coef1 = extract_and_expand(self.sqrt_recip_alphas_cumprod, t, x_t)
-        coef2 = extract_and_expand(self.sqrt_recipm1_alphas_cumprod, t, x_t)
-        return (coef1 * x_t - pred_xstart) / coef2
-
+        return {'sample': sample, 'pred_xstart': out['pred_xstart']}
 
 # =================
 # Helper functions

@@ -95,16 +95,21 @@ class StartXMeanProcessor(MeanProcessor):
 
 @register_mean_processor(name='epsilon')
 class EpsilonXMeanProcessor(MeanProcessor):
-    def __init__(self, betas, dynamic_threshold, clip_denoised):
+    def __init__(self, betas, c_rate, dynamic_threshold, clip_denoised):
         super().__init__(betas, dynamic_threshold, clip_denoised)
         alphas = 1.0 - betas
         alphas_cumprod = np.cumprod(alphas, axis=0)
         alphas_cumprod_prev = np.append(1.0, alphas_cumprod[:-1])
+        self.betas = betas
         
+        self.alphas_cumprod = alphas_cumprod
+        self.alphas_cumprod_prev = alphas_cumprod_prev
         self.sqrt_recip_alphas_cumprod = np.sqrt(1.0 / alphas_cumprod)
         self.sqrt_recipm1_alphas_cumprod = np.sqrt(1.0 / alphas_cumprod - 1)
         self.posterior_mean_coef1 = betas * np.sqrt(alphas_cumprod_prev) / (1.0-alphas_cumprod)
         self.posterior_mean_coef2 = (1.0 - alphas_cumprod_prev) * np.sqrt(alphas) / (1.0 - alphas_cumprod)
+        self.posterior_variance = betas * (1.0 - alphas_cumprod_prev) / (1.0 - alphas_cumprod)
+        self.c_rate = c_rate
 
 
     def q_posterior_mean(self, x_start, x_t, t):
@@ -123,8 +128,15 @@ class EpsilonXMeanProcessor(MeanProcessor):
         return coef1 * x_t - coef2 * eps
 
     def get_mean_and_xstart(self, x, t, model_output):
+        E3 = np.sqrt(self.alphas_cumprod_prev)
+        E4 = np.sqrt(1.0-self.alphas_cumprod_prev) * np.sqrt(1.0 - self.c_rate)
         pred_xstart = self.process_xstart(self.predict_xstart(x, t, model_output))
-        mean = self.q_posterior_mean(pred_xstart, x, t)
+        coef3 = extract_and_expand(E3, t, x)
+        coef4 = extract_and_expand(E4, t, x)
+        
+        mean = coef3 * pred_xstart + coef4 * model_output
+        
+        # mean = self.q_posterior_mean(pred_xstart, x, t)
 
         return mean, pred_xstart
 
