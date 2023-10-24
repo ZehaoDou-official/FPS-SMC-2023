@@ -1,13 +1,12 @@
 # Diffusion Posterior Sampling for Linear Inverse Problem Solving: A Filtering Perspective
 
-![](./figures/illustration.png?=80x)
-<img src="./figures/illustration.png" width="300" height="100" />
+![](./figures/illustration.png)
 
 ## Abstract
 Diffusion models have achieved tremendous success in generating high-dimensional data like images, videos and audio. These models provide powerful data priors that can solve linear inverse problems in zero shot through Bayesian posterior sampling.
 However, exact posterior sampling for diffusion models is intractable. Current solutions often hinge on approximations that are either computationally expensive or lack strong theoretical guarantees. In this work, we introduce an efficient diffusion sampling algorithm for linear inverse problems that is guaranteed to be asymptotically accurate. We reveal a link between Bayesian posterior sampling and Bayesian filtering in diffusion models, proving the former as a specific instance of the latter. Our method, termed filtering posterior sampling, leverages sequential Monte Carlo methods to solve the corresponding filtering problem. It seamlessly integrates with all Markovian diffusion samplers, requires no model re-training, and guarantees accurate samples from the Bayesian posterior as particle counts rise. Empirical tests demonstrate that our method generates better or comparable results than leading zero-shot diffusion posterior samplers on tasks like image inpainting, super-resolution, and motion deblur.
 
-![cover-img](./figures/cover.png?raw=true)
+![cover-img](./figures/cover.png)
 
 
 ## Prerequisites
