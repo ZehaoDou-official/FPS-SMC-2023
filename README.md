@@ -1,6 +1,6 @@
 # Diffusion Posterior Sampling for Linear Inverse Problem Solving: A Filtering Perspective
 
-![illustration](./figures/illustration.png =100x)
+![](./figures/illustration.png?=100x)
 
 ## Abstract
 Diffusion models have achieved tremendous success in generating high-dimensional data like images, videos and audio. These models provide powerful data priors that can solve linear inverse problems in zero shot through Bayesian posterior sampling.
