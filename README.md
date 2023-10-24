@@ -1,6 +1,6 @@
 # Diffusion Posterior Sampling for Linear Inverse Problem Solving: A Filtering Perspective
 
-![illustration](./figures/illustration.pdf?raw=true)
+![illustration](./figures/illustration.png?raw=true)
 
 ## Abstract
 Diffusion models have achieved tremendous success in generating high-dimensional data like images, videos and audio. These models provide powerful data priors that can solve linear inverse problems in zero shot through Bayesian posterior sampling.
@@ -33,22 +33,39 @@ cd FPS-SMC-2023
 <br />
 
 ### 2) Download pretrained checkpoint
-In this section, we create a new folder named "models/". Then, we download the checkpoint "ffhq_10m.pt" (for FFHQ dataset) and "imagenet256.pt" (for ImageNet dataset). After that, we paste these two pretraining score estimation models to "./models/". <br>
-Link for "ffhq_10m.pt" and "imagenet256.pt": [link](https://drive.google.com/drive/folders/1jElnRoFv7b31fG0v6pTSQkelbSX3xGZh?usp=sharing)  <br> (cited from [link](https://github.com/DPS2022/diffusion-posterior-sampling))
-Another choice for ImageNet, "256x256_diffusion_uncond.pt": [link](https://openaipublic.blob.core.windows.net/diffusion/jul-2021/256x256_diffusion_uncond.pt)
+In this section, we create a new folder named "models/". 
+
 ```
 mkdir models
+```
+
+Then, we download the checkpoint "ffhq_10m.pt" (for FFHQ dataset) and "imagenet256.pt" (for ImageNet dataset). After that, we paste these two pretraining score estimation models to "./models/". <br>
+
+Link for "ffhq_10m.pt" and "imagenet256.pt": [link](https://drive.google.com/drive/folders/1jElnRoFv7b31fG0v6pTSQkelbSX3xGZh?usp=sharing)  <br> (cited from [DPS-2022](https://github.com/DPS2022/diffusion-posterior-sampling)). <br>
+Another choice for ImageNet, "256x256_diffusion_uncond.pt": [link](https://openaipublic.blob.core.windows.net/diffusion/jul-2021/256x256_diffusion_uncond.pt)
+
+```
 mv {DOWNLOAD_DIR}/ffhq_10m.pt ./models/
 mv {DOWNLOAD_DIR}/imagenet256.pt ./models/
 ```
+
 {DOWNLOAD_DIR} is the directory that you downloaded checkpoint to.
 
 <br />
 
-### 3) Set environment
+### 3) Download Dataset
+
+Download the FFHQ validation set and paste these images into "./data/samples". <br>
+Download the ImageNet validation set and paste these images into "./data/val_images". <br>
+
+Currently, we put five example images in both of these two folders. Finally, we will need to download the entire validation set (which won't use too much storage). 
+
+<br />
+
+### 4) Set environment
 ### Local environment setting
 
-We use the external codes for motion-blurring and non-linear deblurring.
+Extended from [DPS-2022](https://github.com/DPS2022/diffusion-posterior-sampling), we use the external codes for motion-blurring and non-linear deblurring (to showcase only).
 
 ```
 git clone https://github.com/VinAIResearch/blur-kernel-space-exploring bkse
@@ -70,36 +87,42 @@ pip install torch==1.11.0+cu113 torchvision==0.12.0+cu113 torchaudio==0.11.0 --e
 
 <br />
 
-### 4) Inference
+### 5) Inference
 
 ```
 python3 sample_condition.py \
 --model_config=configs/model_config.yaml \
 --diffusion_config=configs/diffusion_config.yaml \
---task_config={TASK-CONFIG};
+--task_config={TASK-CONFIG}\
+--c_rate=0.95\
+--particle_size=5;
 ```
 <br />
 
 ## Possible task configurations
 
+Since this work aims to solve linear inverse problems by using Filtering Posterior Sampling, we only provide configurations for linear inverse tasks.
+
 ```
-# Linear inverse problems
+# Linear inverse problems (on FFHQ dataset)
 - configs/super_resolution_config.yaml
 - configs/gaussian_deblur_config.yaml
 - configs/motion_deblur_config.yaml
 - configs/inpainting_config.yaml
 
-# Non-linear inverse problems
-- configs/nonlinear_deblur_config.yaml
-- configs/phase_retrieval_config.yaml
+# Linear inverse problems (on ImageNet dataset)
+- configs/super_resolution_imagenet_config.yaml
+- configs/gaussian_deblur_imagenet_config.yaml
+- configs/motion_deblur_imagenet_config.yaml
+- configs/inpainting_imagenet_config.yaml
 ```
+For the inpainting task, you can change the mask type (inpainting_box or inpainting_random) in the config file. 
 
-### Structure of task configurations
-You need to write your data directory at data.root. Default is ./data/samples which contains three sample images from FFHQ validation set.
+### Example and Structure of task configurations
 
 ```
 conditioning:
-    method: # check candidates in guided_diffusion/condition_methods.py
+    method: ps # check candidates in guided_diffusion/condition_methods.py
     params:
         scale: 0.5
 
@@ -107,13 +130,19 @@ data:
     name: ffhq
     root: ./data/samples/
 
+    # name: imagenet
+    # root: ./data/val_images/
+
 measurement:
     operator:
-        name: # check candidates in guided_diffusion/measurements.py
+        name: inpainting # check candidates in guided_diffusion/measurements.py
+    mask_opt:
+        mask_type: box # It means that the mask for the inpainting task has the box-type.
+        mask_len_range: !!python/tuple [128,129] # It means the size of the box-type mask is 128 x 128.
+        image_size: 256
 
 noise:
-    name:   # gaussian or poisson
-    sigma:  # if you use name: gaussian, set this.
-    (rate:) # if you use name: poisson, set this.
+    name: gaussian
+    sigma: 0.05 # The standard deviation of Gaussian noise.
 ```
 
