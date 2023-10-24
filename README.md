@@ -6,7 +6,7 @@
 Diffusion models have achieved tremendous success in generating high-dimensional data like images, videos and audio. These models provide powerful data priors that can solve linear inverse problems in zero shot through Bayesian posterior sampling.
 However, exact posterior sampling for diffusion models is intractable. Current solutions often hinge on approximations that are either computationally expensive or lack strong theoretical guarantees. In this work, we introduce an efficient diffusion sampling algorithm for linear inverse problems that is guaranteed to be asymptotically accurate. We reveal a link between Bayesian posterior sampling and Bayesian filtering in diffusion models, proving the former as a specific instance of the latter. Our method, termed filtering posterior sampling, leverages sequential Monte Carlo methods to solve the corresponding filtering problem. It seamlessly integrates with all Markovian diffusion samplers, requires no model re-training, and guarantees accurate samples from the Bayesian posterior as particle counts rise. Empirical tests demonstrate that our method generates better or comparable results than leading zero-shot diffusion posterior samplers on tasks like image inpainting, super-resolution, and motion deblur.
 
-![cover-img](./figures/cover.jpg)
+![cover-img](./figures/cover.png)
 
 
 ## Prerequisites
@@ -16,9 +16,7 @@ However, exact posterior sampling for diffusion models is intractable. Current s
 
 - CUDA 11.3.1
 
-It is okay to use lower version of CUDA with proper pytorch version.
-
-Ex) CUDA 10.2 with pytorch 1.7.0
+It is okay to use lower version of CUDA and pytorch as long as they are compatible, (such as CUDA 10.2 and pytorch 1.7.0)
 
 <br />
 
@@ -27,9 +25,9 @@ Ex) CUDA 10.2 with pytorch 1.7.0
 ### 1) Clone the repository
 
 ```
-git clone https://github.com/DPS2022/diffusion-posterior-sampling
+git clone https://github.com/ZehaoDou-official/FPS-SMC-2023
 
-cd diffusion-posterior-sampling
+cd FPS-SMC-2023
 ```
 
 <br />
@@ -48,7 +46,7 @@ mv {DOWNLOAD_DIR}/ffqh_10m.pt ./models/
 
 
 ### 3) Set environment
-### [Option 1] Local environment setting
+### Local environment setting
 
 We use the external codes for motion-blurring and non-linear deblurring.
 
@@ -72,22 +70,6 @@ pip install torch==1.11.0+cu113 torchvision==0.12.0+cu113 torchaudio==0.11.0 --e
 
 <br />
 
-### [Option 2] Build Docker image
-
-Install docker engine, GPU driver and proper cuda before running the following commands.
-
-Dockerfile already contains command to clone external codes. You don't have to clone them again.
-
---gpus=all is required to use local GPU device (Docker >= 19.03)
-
-```
-docker build -t dps-docker:latest .
-
-docker run -it --rm --gpus=all dps-docker
-```
-
-<br />
-
 ### 4) Inference
 
 ```
@@ -96,10 +78,6 @@ python3 sample_condition.py \
 --diffusion_config=configs/diffusion_config.yaml \
 --task_config={TASK-CONFIG};
 ```
-
-
-:speaker: For imagenet, use configs/imagenet_model_config.yaml
-
 <br />
 
 ## Possible task configurations
