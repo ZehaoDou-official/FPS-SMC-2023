@@ -1,11 +1,10 @@
-# Diffusion Posterior Sampling for General Noisy Inverse Problems (ICLR 2023 spotlight)
+# Diffusion Posterior Sampling for Linear Inverse Problem Solving: A Filtering Perspective
 
-![result-gif1](./figures/motion_blur.gif)
-![result-git2](./figures/super_resolution.gif)
-<!-- See more results in the [project-page](https://jeongsol-kim.github.io/dps-project-page) -->
+![illustration](./figures/illustration.pdf)
 
 ## Abstract
-In this work, we extend diffusion solvers to efficiently handle general noisy (non)linear inverse problems via the approximation of the posterior sampling. Interestingly, the resulting posterior sampling scheme is a blended version of the diffusion sampling with the manifold constrained gradient without strict measurement consistency projection step, yielding more desirable generative path in noisy settings compared to the previous studies.
+Diffusion models have achieved tremendous success in generating high-dimensional data like images, videos and audio. These models provide powerful data priors that can solve linear inverse problems in zero shot through Bayesian posterior sampling.
+However, exact posterior sampling for diffusion models is intractable. Current solutions often hinge on approximations that are either computationally expensive or lack strong theoretical guarantees. In this work, we introduce an efficient diffusion sampling algorithm for linear inverse problems that is guaranteed to be asymptotically accurate. We reveal a link between Bayesian posterior sampling and Bayesian filtering in diffusion models, proving the former as a specific instance of the latter. Our method, termed filtering posterior sampling, leverages sequential Monte Carlo methods to solve the corresponding filtering problem. It seamlessly integrates with all Markovian diffusion samplers, requires no model re-training, and guarantees accurate samples from the Bayesian posterior as particle counts rise. Empirical tests demonstrate that our method generates better or comparable results than leading zero-shot diffusion posterior samplers on tasks like image inpainting, super-resolution, and motion deblur.
 
 ![cover-img](./figures/cover.jpg)
 
@@ -16,8 +15,6 @@ In this work, we extend diffusion solvers to efficiently handle general noisy (n
 - pytorch 1.11.0
 
 - CUDA 11.3.1
-
-- nvidia-docker (if you use GPU in docker container)
 
 It is okay to use lower version of CUDA with proper pytorch version.
 
@@ -140,19 +137,5 @@ noise:
     name:   # gaussian or poisson
     sigma:  # if you use name: gaussian, set this.
     (rate:) # if you use name: poisson, set this.
-```
-
-## Citation
-If you find our work interesting, please consider citing
-
-```
-@inproceedings{
-chung2023diffusion,
-title={Diffusion Posterior Sampling for General Noisy Inverse Problems},
-author={Hyungjin Chung and Jeongsol Kim and Michael Thompson Mccann and Marc Louis Klasky and Jong Chul Ye},
-booktitle={The Eleventh International Conference on Learning Representations },
-year={2023},
-url={https://openreview.net/forum?id=OnD9zGAGT0k}
-}
 ```
 
