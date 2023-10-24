@@ -41,8 +41,8 @@ mkdir models
 
 Then, we download the checkpoint "ffhq_10m.pt" (for FFHQ dataset) and "imagenet256.pt" (for ImageNet dataset). After that, we paste these two pretraining score estimation models to "./models/". <br>
 
-Link for "ffhq_10m.pt" and "imagenet256.pt": [link](https://drive.google.com/drive/folders/1jElnRoFv7b31fG0v6pTSQkelbSX3xGZh?usp=sharing)  <br> (cited from [DPS-2022](https://github.com/DPS2022/diffusion-posterior-sampling)). <br>
-Another choice for ImageNet, "256x256_diffusion_uncond.pt": [link](https://openaipublic.blob.core.windows.net/diffusion/jul-2021/256x256_diffusion_uncond.pt)
+Link for "ffhq_10m.pt" and "imagenet256.pt": [link](https://drive.google.com/drive/folders/1jElnRoFv7b31fG0v6pTSQkelbSX3xGZh?usp=sharing) (cited from [DPS-2022](https://github.com/DPS2022/diffusion-posterior-sampling)). <br>
+Another choice for ImageNet is "256x256_diffusion_uncond.pt": [link](https://openaipublic.blob.core.windows.net/diffusion/jul-2021/256x256_diffusion_uncond.pt)
 
 ```
 mv {DOWNLOAD_DIR}/ffhq_10m.pt ./models/
