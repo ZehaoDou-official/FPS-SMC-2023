@@ -490,7 +490,7 @@ class DDIM(SpacedDiffusion):
                 prob = [prob_y[_] + prob_x[_] - prob_prev[_] for _ in range(M)]
                 exp_prob = [exp(x-max(prob)) for x in prob]
                 sample_id = random.choices(list(range(M)), weights=exp_prob, k=M)
-                sample = [samples[i] for i in sample_id]
+                samples = [samples[i] for i in sample_id]
                 sample = torch.stack(samples, 0)[:,0,:,:,:]
                 
             elif op == 'super_resolution':
@@ -505,7 +505,7 @@ class DDIM(SpacedDiffusion):
                 prob = [prob_y[_] + prob_x[_] - prob_prev[_] for _ in range(M)]
                 exp_prob = [exp(x-max(prob)) for x in prob]
                 sample_id = random.choices(list(range(M)), weights=exp_prob, k=M)
-                sample = [samples[i] for i in sample_id]
+                samples = [samples[i] for i in sample_id]
                 sample = torch.stack(samples, 0)[:,0,:,:,:]
             
             else:
@@ -520,7 +520,7 @@ class DDIM(SpacedDiffusion):
                 prob = [prob_y[_] + prob_x[_] - prob_prev[_] for _ in range(M)]
                 exp_prob = [exp(x-max(prob)) for x in prob]
                 sample_id = random.choices(list(range(M)), weights=exp_prob, k=M)
-                sample = [samples[i] for i in sample_id]
+                samples = [samples[i] for i in sample_id]
                 sample = torch.stack(samples, 0)[:,0,:,:,:]
 
         return {'sample': sample, 'pred_xstart': out['pred_xstart']}
