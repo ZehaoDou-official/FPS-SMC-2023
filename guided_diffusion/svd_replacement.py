@@ -241,7 +241,7 @@ class SuperResolution(H_functions):
             param = ones / (ones + self.all_singulars * self.all_singulars)
             
         recon = param * recon
-        recon = self.V(recon)
+        recon = self.V(recon).reshape(vec.shape[0],3,256,256)
         
         return recon
     
@@ -255,7 +255,7 @@ class SuperResolution(H_functions):
             ones = torch.ones((vec.shape[0], self.length), device=vec.device, dtype=torch.float64) * t
             param = torch.sqrt(ones / (ones + self.all_singulars * self.all_singulars))
         recon = param * vec
-        recon = self.V(recon)
+        recon = self.V(recon).reshape(vec.shape[0],3,256,256)
 
         return recon
         
@@ -516,7 +516,7 @@ class Deblurring(H_functions):
         ones = torch.ones((vec.shape[0], self.length), device=vec.device) * t
         param = ones / (ones + self.all_singulars * self.all_singulars)
         recon = param * recon
-        recon = self.V(recon)
+        recon = self.V(recon).reshape(vec.shape[0],3,256,256)
         
         return recon
     
@@ -525,7 +525,7 @@ class Deblurring(H_functions):
         ones = torch.ones((self.length), device=vec.device, dtype=torch.float64) * t
         param = torch.sqrt(ones / (ones + self.singulars() * self.singulars()))
         recon = param * vec
-        recon = self.V(recon)
+        recon = self.V(recon).reshape(vec.shape[0],3,256,256)
 
         return recon
         
@@ -627,7 +627,7 @@ class Deblurring2D(H_functions):
         ones = torch.ones((vec.shape[0], self.length), device=vec.device) * t
         param = ones / (ones + self.all_singulars * self.all_singulars)
         recon = param * recon
-        recon = self.V(recon)
+        recon = self.V(recon).reshape(vec.shape[0],3,256,256)
         
         return recon
     
@@ -636,7 +636,7 @@ class Deblurring2D(H_functions):
         ones = torch.ones((self.length), device=vec.device, dtype=torch.float64) * t
         param = torch.sqrt(ones / (ones + self.all_singulars * self.all_singulars))
         recon = param * vec
-        recon = self.V(recon)
+        recon = self.V(recon).reshape(vec.shape[0],3,256,256)
 
         return recon
         
