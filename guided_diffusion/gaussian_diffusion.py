@@ -276,7 +276,7 @@ class GaussianDiffusion:
                     img = self.task_Svd.get_mean(tmp, self.variance_diff[idx])
                     img = img + self.task_Svd.get_noise(noise, self.variance_diff[idx])
                     starting = False
-                    img = img.reshape(batch_size, 3, 256, 256)
+                    img = img.reshape(self.M, 3, 256, 256)
                     continue
             
             img = img.requires_grad_()
@@ -471,6 +471,8 @@ class DDIM(SpacedDiffusion):
             e_y = torch.unsqueeze(Y[0], 0)
             a_coef = self.variance_diff
             c1_coef = np.sqrt(self.posterior_variance)
+            a1 = self.variance_diff[t.data[0]]
+            c11 = c1_coef[t.data[0]]
             a = extract_and_expand(a_coef, t, e_x)
             c1 = extract_and_expand(c1_coef, t, e_x)
             
@@ -500,8 +502,8 @@ class DDIM(SpacedDiffusion):
                     noise = self.task_Svd.get_noise(noise, self.ex_values[t.data[0]])
                     samples.append(sample_list[_] + noise)
                 prob_y = [-torch.linalg.norm(e_y - operator.forward(samples[i])).item() ** 2 / (2*model_variance) for i in range(M)]
-                prob_x = [-torch.linalg.norm(samples[i] - sample_back_list[i]).item() ** 2 / (2 * c1 * c1) for i in range(M)]
-                prob_prev = [-torch.linalg.norm(samples[i] - sample_list[i]).item() ** 2 / (2 * c1 * c1) - torch.linalg.norm(operator.forward(samples[i]-sample_list[i])).item() ** 2 / (2 * a) for i in range(M)]
+                prob_x = [-torch.linalg.norm(samples[i] - sample_back_list[i]).item() ** 2 / (2 * c11 * c11) for i in range(M)]
+                prob_prev = [-torch.linalg.norm(samples[i] - sample_list[i]).item() ** 2 / (2 * c11 * c11) - torch.linalg.norm(operator.forward(samples[i]-sample_list[i])).item() ** 2 / (2 * a1) for i in range(M)]
                 prob = [prob_y[_] + prob_x[_] - prob_prev[_] for _ in range(M)]
                 exp_prob = [exp(x-max(prob)) for x in prob]
                 sample_id = random.choices(list(range(M)), weights=exp_prob, k=M)
@@ -515,8 +517,8 @@ class DDIM(SpacedDiffusion):
                     noise = self.task_Svd.get_noise(noise, self.ex_values[t.data[0]])
                     samples.append(sample_list[_] + noise)
                 prob_y = [-torch.linalg.norm(e_y - self.task_Svd.forward(samples[i])).item() ** 2 / (2*model_variance) for i in range(M)]
-                prob_x = [-torch.linalg.norm(samples[i] - sample_back_list[i]).item() ** 2 / (2 * c1 * c1) for i in range(M)]
-                prob_prev = [-torch.linalg.norm(samples[i] - sample_list[i]).item() ** 2 / (2 * c1 * c1) - torch.linalg.norm(operator.forward(samples[i]-sample_list[i])).item() ** 2 / (2 * a) for i in range(M)]
+                prob_x = [-torch.linalg.norm(samples[i] - sample_back_list[i]).item() ** 2 / (2 * c11 * c11) for i in range(M)]
+                prob_prev = [-torch.linalg.norm(samples[i] - sample_list[i]).item() ** 2 / (2 * c11 * c11) - torch.linalg.norm(operator.forward(samples[i]-sample_list[i])).item() ** 2 / (2 * a1) for i in range(M)]
                 prob = [prob_y[_] + prob_x[_] - prob_prev[_] for _ in range(M)]
                 exp_prob = [exp(x-max(prob)) for x in prob]
                 sample_id = random.choices(list(range(M)), weights=exp_prob, k=M)
